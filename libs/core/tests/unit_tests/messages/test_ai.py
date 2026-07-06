@@ -305,6 +305,60 @@ def test_streaming_tool_call_zero_arg_tool_fires_at_stream_end() -> None:
     ]
 
 
+def test_streaming_tool_call_malformed_args_not_converted_to_empty_dict() -> None:
+    """Unparseable non-empty args must go to invalid_tool_calls, never `{}`.
+
+    Distinguishes true "no args yet" (args="") from garbage args, which is a
+    separate case from https://github.com/langchain-ai/langchain/issues/38682
+    but adjacent to the code path touched by that fix.
+    """
+    chunk = AIMessageChunk(
+        content="",
+        tool_call_chunks=[
+            {
+                "type": "tool_call_chunk",
+                "name": "get_weather",
+                "args": "not-json-at-all}}}",
+                "id": "call_bad",
+                "index": 0,
+            }
+        ],
+    )
+    assert chunk.tool_calls == []
+    assert len(chunk.invalid_tool_calls) == 1
+    assert chunk.invalid_tool_calls[0]["args"] == "not-json-at-all}}}"
+
+
+def test_streaming_tool_call_partial_json_still_progressively_parses() -> None:
+    """Non-empty partial JSON is intentionally parsed provisionally as it streams in.
+
+    Unlike a truly empty args string, this is deliberate, pre-existing
+    behavior (used to expose in-progress argument state while streaming)
+    and is out of scope for the args="" fix in #38682 — it is not the
+    "still streaming" signal being guarded against there.
+    """
+    chunk_1 = AIMessageChunk(
+        content="",
+        tool_call_chunks=[
+            {
+                "type": "tool_call_chunk",
+                "name": "get_weather",
+                "args": '{"city": "Par',
+                "id": "call_partial",
+                "index": 0,
+            }
+        ],
+    )
+    assert chunk_1.tool_calls == [
+        {
+            "name": "get_weather",
+            "args": {"city": "Par"},
+            "id": "call_partial",
+            "type": "tool_call",
+        }
+    ]
+
+
 def test_content_blocks() -> None:
     message = AIMessage(
         "",
